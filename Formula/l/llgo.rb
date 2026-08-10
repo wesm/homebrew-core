@@ -1,10 +1,40 @@
 class Llgo < Formula
   desc "Go compiler based on LLVM integrate with the C ecosystem and Python"
   homepage "https://github.com/xgo-dev/llgo"
-  url "https://github.com/xgo-dev/llgo/archive/refs/tags/v0.12.2.tar.gz"
-  sha256 "a52cb2d41805747d0e882d050d6bf6a626b510c8a3d34a2c511a51df54117d43"
   license "Apache-2.0"
   head "https://github.com/xgo-dev/llgo.git", branch: "main"
+
+  stable do
+    url "https://github.com/xgo-dev/llgo/archive/refs/tags/v0.13.0.tar.gz"
+    sha256 "4b413886ba07f37ce7d6b4cd088e98e2d0bddfdc1a68f33cdd7b027bffcb6990"
+
+    # Backport plan9asm update to fix Go 1.25+ on arm64
+    patch do
+      url "https://github.com/xgo-dev/llgo/commit/76a913ff126cc91d500e223d84661b20e8bc4e75.patch?full_index=1"
+      sha256 "747bd47539a6900de4391f3a7e9246e58af67be32fab5358b6f7d6ff54219355"
+      type :backport
+    end
+    patch do
+      url "https://github.com/xgo-dev/llgo/commit/4a1c8967ff09a528ae80529c4e05b359455dd467.patch?full_index=1"
+      sha256 "0db29e139fd3cd4d7304d3b20b58fc483317ea93ae9f7e81ec20156bd6565010"
+      type :backport
+    end
+    patch do
+      url "https://github.com/xgo-dev/llgo/commit/b1cf3f532eb4b3629d3612e2e629334926744034.patch?full_index=1"
+      sha256 "a0df2aedf39d9a63a76e2805670f0e7e388322fbf9b3edc9e89b231027120560"
+      type :backport
+    end
+    patch do
+      url "https://github.com/xgo-dev/llgo/commit/81726f17b7d5e54bc499de028b7dc1883f0182e3.patch?full_index=1"
+      sha256 "a8e9f93a119c3553c7c4bac1d7d77eefc495a80670a6efdb2d75b6965ac9a7d4"
+      type :backport
+    end
+    patch do
+      url "https://github.com/xgo-dev/llgo/commit/5f0475cc7eac8389c48121016736a787683eb9cc.patch?full_index=1"
+      sha256 "ca9d00ab8bfb6b436ca61966e7f2d979a2fea8fc94f678d747af342035f8eeb8"
+      type :backport
+    end
+  end
 
   livecheck do
     url :stable
@@ -23,15 +53,20 @@ class Llgo < Formula
   depends_on "bdw-gc" => :no_linkage
   depends_on "go@1.25"
   depends_on "libuv" => :no_linkage
-  depends_on "lld@19"
-  depends_on "llvm@19"
   depends_on "openssl@3"
   depends_on "pkgconf"
 
   uses_from_macos "libffi"
 
+  on_macos do
+    depends_on "lld@21"
+    depends_on "llvm@21"
+  end
+
   on_linux do
     depends_on "libunwind"
+    depends_on "lld@19"
+    depends_on "llvm@19"
     depends_on "zlib-ng-compat"
   end
 
@@ -47,7 +82,11 @@ class Llgo < Formula
       -X github.com/goplus/llgo/internal/env.buildTime=#{time.iso8601}
       -X github.com/goplus/llgo/xtool/env/llvm.ldLLVMConfigBin=#{llvm.opt_bin}/llvm-config
     ]
-    tags = nil
+    tags = %W[llvm#{llvm.version.major}]
+    path_deps = %w[lld go pkgconf].map { |name| find_dep(name).opt_bin }
+    path_deps << llvm.opt_bin
+    script_env = { PATH: "#{path_deps.join(":")}:${PATH}" }
+
     if OS.linux?
       # Workaround to avoid patchelf corruption when cgo is required
       if Hardware::CPU.arm64?
@@ -63,28 +102,16 @@ class Llgo < Formula
         "-D__STDC_FORMAT_MACROS " \
         "-D__STDC_LIMIT_MACROS"
       ENV.prepend "CGO_LDFLAGS", "-L#{llvm.opt_lib} -lLLVM"
-      tags = "byollvm"
-    end
 
-    system "go", "build", *std_go_args(ldflags:, tags:, output: libexec/"bin/llgo"), "./cmd/llgo"
-
-    libexec.install "LICENSE", "README.md", "go.mod", "go.sum", "runtime"
-
-    path_deps = %w[lld go pkgconf].map { |name| find_dep(name).opt_bin }
-    path_deps << llvm.opt_bin
-    script_env = { PATH: "#{path_deps.join(":")}:${PATH}" }
-
-    if OS.linux?
+      tags << "byollvm"
       libunwind = find_dep("libunwind")
       script_env[:CFLAGS] = "-I#{libunwind.opt_include} ${CFLAGS}"
       script_env[:LDFLAGS] = "-L#{libunwind.opt_lib} -Wl,-rpath,#{libunwind.opt_lib} ${LDFLAGS}"
     end
 
-    (libexec/"bin").each_child do |f|
-      next if f.directory?
-
-      (bin/f.basename).write_env_script f, script_env
-    end
+    system "go", "build", *std_go_args(ldflags:, tags:), "./cmd/llgo"
+    bin.env_script_all_files(libexec/"bin", script_env)
+    libexec.install "LICENSE", "README.md", "go.mod", "go.sum", "runtime"
   end
 
   test do
