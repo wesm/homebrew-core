@@ -18,12 +18,26 @@ class Awscli < Formula
     sha256 cellar: :any, x86_64_linux:  "43082cfc8ccc458cdd9594d342bf21a5195147ed4f1c51573cc8f4ee71a4342b"
   end
 
-  depends_on "cmake" => :build
-  depends_on "openssl@3"
+  depends_on "aws-c-auth"
+  depends_on "aws-c-cal"
+  depends_on "aws-c-common"
+  depends_on "aws-c-event-stream"
+  depends_on "aws-c-http"
+  depends_on "aws-c-io"
+  depends_on "aws-c-mqtt"
+  depends_on "aws-c-s3"
+  depends_on "aws-checksums"
   depends_on "python@3.14"
+  depends_on "s2n"
 
   uses_from_macos "libffi"
   uses_from_macos "mandoc"
+
+  on_macos do
+    depends_on "aws-c-compression"
+    depends_on "aws-c-sdkutils"
+    depends_on "openssl@3"
+  end
 
   pypi_packages extra_packages: "flit-core"
 
@@ -98,16 +112,10 @@ class Awscli < Formula
 
   def install
     ENV["AWS_CRT_BUILD_USE_SYSTEM_LIBCRYPTO"] = "1"
-
-    # Work around ruamel.yaml.clib not building on Xcode 15.3, remove after a new release
-    # has resolved: https://sourceforge.net/p/ruamel-yaml-clib/tickets/32/
-    ENV.append_to_cflags "-Wno-incompatible-function-pointer-types" if DevelopmentTools.clang_build_version >= 1500
+    ENV["AWS_CRT_BUILD_USE_SYSTEM_LIBS"] = "1"
 
     venv = virtualenv_create(libexec, python3, system_site_packages: false)
-    venv.pip_install resources.reject { |r| r.name == "awscrt" }
-    # CPU detection is available in AWS C libraries
-    ENV.runtime_cpu_detection
-    venv.pip_install resource("awscrt")
+    venv.pip_install resources
     venv.pip_install_and_link buildpath, build_isolation: false
 
     pkgshare.install "awscli/examples"
